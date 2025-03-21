@@ -1,14 +1,15 @@
 import fs from "fs";
 import { PinataSDK } from "pinata";
+import type { User } from "./types";
 
-const GROUP_ID = '0195b878-390f-7ab6-85d4-710312d2f33d';
+const GROUP_ID = "0195b878-390f-7ab6-85d4-710312d2f33d";
 
 const pinata = new PinataSDK({
   pinataJwt: process.env.PINATA_JWT,
   pinataGateway: process.env.PINATA_GATEWAY,
 });
 
-const questions: any = {
+const questions: Record<keyof User["responses"], string[]> = {
   whatBringsYouHere: [
     "Serious Relationship",
     "Casual Dating",
@@ -166,16 +167,15 @@ const questions: any = {
   ],
 };
 
-function getRandomElement(array: any[]) {
+function getRandomElement<T>(array: T[]): T {
   return array[Math.floor(Math.random() * array.length)];
 }
 
-function getRandomGender() {
-  const genders = ["Male", "Female", "Non-binary"];
-  return genders[Math.floor(Math.random() * genders.length)];
+function getRandomGender(): "Male" | "Female" | "Non-binary" {
+  return getRandomElement(["Male", "Female", "Non-binary"]);
 }
 
-const createUserProfile = async () => {
+const createUserProfile = async (): Promise<User> => {
   try {
     const gender = getRandomGender();
     const res = await fetch(
@@ -183,11 +183,27 @@ const createUserProfile = async () => {
     );
     const data = await res.json();
     const { results } = data;
-    const user: any = {
+
+    const user: User = {
       gender,
-      firstName: results[0].first,
-      lastName: results[0].last,
-      location: results[0].location,
+      location: {
+        street: {
+          number: results[0].location.street.number,
+          name: results[0].location.street.name,
+        },
+        city: results[0].location.city,
+        state: results[0].location.state,
+        country: results[0].location.country,
+        postcode: results[0].location.postcode,
+        coordinates: {
+          latitude: results[0].location.coordinates.latitude,
+          longitude: results[0].location.coordinates.longitude,
+        },
+        timezone: {
+          offset: results[0].location.timezone.offset,
+          description: results[0].location.timezone.description,
+        },
+      },
       username: results[0].login.username,
       dob: results[0].dob.date,
       age: results[0].dob.age,
@@ -195,61 +211,101 @@ const createUserProfile = async () => {
         large: results[0].picture.large,
         thumbnail: results[0].picture.thumbnail,
       },
-      responses: {},
+      responses: {} as User["responses"],
     };
 
-    Object.keys(questions).forEach((key) => {
-      user.responses[key] = getRandomElement(questions[key]);
-    });
+    if (user.responses) {
+      Object.keys(questions).forEach((key) => {
+        user.responses![key as keyof User["responses"]] = getRandomElement(
+          questions[key as keyof User["responses"]]
+        );
+      });
+    }
 
     return user;
   } catch (error) {
-    console.log(error);
+    console.error(error);
     throw error;
   }
 };
 
 const generateProfiles = async () => {
-    const totalProfiles = 1000;
-    let currentCount = 0;
-    const users = [];
-    while(currentCount < totalProfiles) {
-        try {
-            console.log("User number: ", currentCount);
-            const user = await createUserProfile()
-            users.push(user);
-            fs.writeFileSync(`./users/${user.username}.json`, JSON.stringify(user));
-            currentCount++;   
-        } catch (error) {
-            console.log(error);
-            process.exit(1);
-        }
-    }
+  const totalProfiles = 1000;
+  let currentCount = 0;
+  const users: User[] = [];
 
-    console.log("Done!");
-}
+  while (currentCount < totalProfiles) {
+    try {
+      console.log("User number: ", currentCount);
+      const user = await createUserProfile();
+      users.push(user);
+      fs.writeFileSync(`./users/${user.username}.json`, JSON.stringify(user));
+      currentCount++;
+    } catch (error) {
+      console.error(error);
+      process.exit(1);
+    }
+  }
+
+  console.log("Done!");
+};
 
 const vectorizeProfileData = async () => {
   try {
-    //  Consider using promise all to speed up the process
     const users = fs.readdirSync("./users");
-    for(const user of users) {
-      if(user.includes("json")) {
+    for (const userFile of users) {
+      if (userFile.includes(".json")) {
+        console.log(userFile);
         try {
-          const blob = new Blob([fs.readFileSync(user)]);
-          const file = new File([blob], user, { type: "text/plain"})
-          await pinata.upload.private.file(file).group(GROUP_ID).vectorize();
+          const userDataRaw = fs.readFileSync(`./users/${userFile}`, "utf-8");
+          const userData: User = JSON.parse(userDataRaw);
+
+          const username = userData.username;
+          const userQuestions = Object.keys(userData.responses!);
+          let textString = ``;
+          for (const question of userQuestions) {
+            try {
+              textString += `${question}: ${
+                userData.responses?.[
+                  question as keyof typeof userData.responses
+                ] ?? "N/A"
+              }\n`;
+
+              const file = new File([textString], username, {
+                type: "text/plain",
+              });
+              await pinata.upload.private
+                .file(file)
+                .group(GROUP_ID)
+                .vectorize();
+            } catch (error) {
+              console.log("Error looping through user questions");
+              throw error;
+            }
+          }
         } catch (error) {
-          console.log(error);
-          console.log(user);
+          console.error(error);
+          console.error("File:", userFile);
           throw error;
         }
       }
     }
   } catch (error) {
+    console.error(error);
+    process.exit(1);
+  }
+};
+
+const startScript = async () => {
+  try {
+    await generateProfiles();
+    await vectorizeProfileData();
+    console.log("Done!");
+    process.exit(0);
+  } catch (error) {
     console.log(error);
     process.exit(1);
   }
-}
+};
 
-generateProfiles();
+startScript();
