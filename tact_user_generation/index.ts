@@ -1,4 +1,12 @@
 import fs from "fs";
+import { PinataSDK } from "pinata";
+
+const GROUP_ID = '0195b878-390f-7ab6-85d4-710312d2f33d';
+
+const pinata = new PinataSDK({
+  pinataJwt: process.env.PINATA_JWT,
+  pinataGateway: process.env.PINATA_GATEWAY,
+});
 
 const questions: any = {
   whatBringsYouHere: [
@@ -219,6 +227,29 @@ const generateProfiles = async () => {
     }
 
     console.log("Done!");
+}
+
+const vectorizeProfileData = async () => {
+  try {
+    //  Consider using promise all to speed up the process
+    const users = fs.readdirSync("./users");
+    for(const user of users) {
+      if(user.includes("json")) {
+        try {
+          const blob = new Blob([fs.readFileSync(user)]);
+          const file = new File([blob], user, { type: "text/plain"})
+          await pinata.upload.private.file(file).group(GROUP_ID).vectorize();
+        } catch (error) {
+          console.log(error);
+          console.log(user);
+          throw error;
+        }
+      }
+    }
+  } catch (error) {
+    console.log(error);
+    process.exit(1);
+  }
 }
 
 generateProfiles();
