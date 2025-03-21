@@ -1,0 +1,16 @@
+{
+  "name": "tact-server",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy --minify"
+  },
+  "dependencies": {
+    "@privy-io/server-auth": "^1.19.0",
+    "hono": "^4.7.5",
+    "pinata": "^2.1.0"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^4.20250214.0",
+    "wrangler": "^3.109.2"
+  }
+}
