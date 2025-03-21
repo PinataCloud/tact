@@ -1,6 +1,13 @@
 import fs from "fs";
 import { PinataSDK } from "pinata";
-import type { User } from "./types";
+import type { DatabaseUser, User } from "./types";
+
+import { createClient } from "@supabase/supabase-js";
+
+const supabase = createClient(
+  process.env.SUPABASE_URL!,
+  process.env.SUPABASE_SERVICE_ROLE_KEY!
+);
 
 const GROUP_ID = "0195b878-390f-7ab6-85d4-710312d2f33d";
 
@@ -186,6 +193,7 @@ const createUserProfile = async (): Promise<User> => {
 
     const user: User = {
       gender,
+      name: results[0].name,
       location: {
         street: {
           number: results[0].location.street.number,
@@ -230,7 +238,7 @@ const createUserProfile = async (): Promise<User> => {
 };
 
 const generateProfiles = async () => {
-  const totalProfiles = 1000;
+  const totalProfiles = 500;
   let currentCount = 0;
   const users: User[] = [];
 
@@ -270,19 +278,22 @@ const vectorizeProfileData = async () => {
                   question as keyof typeof userData.responses
                 ] ?? "N/A"
               }\n`;
-
-              const file = new File([textString], username, {
-                type: "text/plain",
-              });
-              await pinata.upload.private
-                .file(file)
-                .group(GROUP_ID)
-                .vectorize();
             } catch (error) {
               console.log("Error looping through user questions");
               throw error;
             }
           }
+
+          const file = new File([textString], username, {
+            type: "text/plain",
+          });
+
+          const { cid } = await pinata.upload.private
+            .file(file)
+            .group(GROUP_ID)
+            .vectorize();
+
+          await addToDB(userData, cid);
         } catch (error) {
           console.error(error);
           console.error("File:", userFile);
@@ -293,6 +304,27 @@ const vectorizeProfileData = async () => {
   } catch (error) {
     console.error(error);
     process.exit(1);
+  }
+};
+
+const addToDB = async (user: User, cid: string) => {
+  const userToAdd: DatabaseUser = {
+    username: user.username,
+    dob: user.dob,
+    city: user.location.city,
+    state: user.location.state,
+    country: user.location.country,
+    picture: user.picture.large,
+    response_hash: cid,
+    full_name: `${user.name.first} ${user.name.last}`,
+  };
+  const { data, error } = await supabase
+    .from("users")
+    .insert([userToAdd])
+    .select();
+
+  if (error) {
+    throw error;
   }
 };
 
@@ -308,4 +340,62 @@ const startScript = async () => {
   }
 };
 
-startScript();
+const updateGender = async () => {
+  try {
+    let { data: users, error } = await supabase.from("users").select("*");
+
+    if (error) {
+      throw error;
+    }
+
+    let newUsers = [];
+
+    if (users) {
+      for (const user of users) {
+        console.log(user.username);
+        try {
+          const gender = getRandomGender();
+          const res = await fetch(
+            `https://randomuser.me/api/?gender=${gender.toLowerCase()}`
+          );
+          const data = await res.json();
+          const { results } = data;
+
+          const userData = results[0];
+
+          const { data: updateData, error: updateError } = await supabase
+            .from("users")
+            .update({
+              gender: gender,
+              username: user.username,
+              dob: userData.dob.date,
+              city: userData.location.city,
+              state: userData.location.state,
+              country: userData.location.country,
+              picture: userData.picture.large,
+              full_name: `${userData.name.first} ${userData.name.last}`,
+              created_at: new Date()
+            })
+            .eq("username", user.username)
+            .select();
+
+          if (updateError) {
+            throw updateError;
+          }
+        } catch (error) {
+          console.log(error);
+          console.log(user.username);
+          throw error;
+        }
+      }
+    }
+
+    console.log("Done!");
+  } catch (error) {
+    console.log(error);
+    process.exit(1);
+  }
+};
+
+// startScript();
+updateGender();
