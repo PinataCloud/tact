@@ -13,7 +13,7 @@
 use alloy_sol_types::SolType;
 use clap::Parser;
 use sp1_sdk::{include_elf, ProverClient, SP1Stdin};
-use tact_lib::{compute_matches_hash, find_matches, PublicValuesStruct, UserLike, UserProfile};
+use tact_lib::{check_mutual_interest, PublicValuesStruct, UserLike};
 
 /// The ELF file for the Succinct RISC-V zkVM
 pub const TACT_ELF: &[u8] = include_elf!("tact-program");
@@ -30,6 +30,9 @@ struct Args {
 
     #[clap(long, default_value = "1")]
     user_id: u32,
+
+    #[clap(long, default_value = "2")]
+    target_id: u32,
 }
 
 fn main() {
@@ -44,45 +47,6 @@ fn main() {
         eprintln!("Error: You must specify either --execute or --prove");
         std::process::exit(1);
     }
-
-    // Create sample user profiles
-    let profiles = vec![
-        UserProfile {
-            id: 1,
-            min_age: 25,
-            max_age: 35,
-            interests: 0b1010,
-            location: 1,
-        }, // User 1
-        UserProfile {
-            id: 2,
-            min_age: 23,
-            max_age: 33,
-            interests: 0b1100,
-            location: 1,
-        }, // User 2
-        UserProfile {
-            id: 3,
-            min_age: 28,
-            max_age: 40,
-            interests: 0b1001,
-            location: 1,
-        }, // User 3
-        UserProfile {
-            id: 4,
-            min_age: 22,
-            max_age: 30,
-            interests: 0b0011,
-            location: 2,
-        }, // User 4
-        UserProfile {
-            id: 5,
-            min_age: 30,
-            max_age: 45,
-            interests: 0b1110,
-            location: 1,
-        }, // User 5
-    ];
 
     // Create sample likes
     let likes = vec![
@@ -126,19 +90,10 @@ fn main() {
     // Setup the inputs
     let mut stdin = SP1Stdin::new();
     stdin.write(&args.user_id);
+    stdin.write(&args.target_id);
 
-    // Write profile and likes count
-    stdin.write(&(profiles.len() as u32));
+    // Write likes count
     stdin.write(&(likes.len() as u32));
-
-    // Write all profiles
-    for profile in &profiles {
-        stdin.write(&profile.id);
-        stdin.write(&profile.min_age);
-        stdin.write(&profile.max_age);
-        stdin.write(&profile.interests);
-        stdin.write(&profile.location);
-    }
 
     // Write all likes
     for like in &likes {
@@ -146,10 +101,13 @@ fn main() {
         stdin.write(&like.likee_id);
     }
 
-    println!("User ID: {}", args.user_id);
+    println!(
+        "Checking if User {} and User {} have mutual interest",
+        args.user_id, args.target_id
+    );
 
-    // Pre-compute the expected matches for verification
-    let expected_matches = find_matches(args.user_id, &profiles, &likes);
+    // Pre-compute the expected result for verification
+    let expected_result = check_mutual_interest(args.user_id, args.target_id, &likes);
 
     if args.execute {
         // Execute the program
@@ -160,27 +118,13 @@ fn main() {
         let decoded = PublicValuesStruct::abi_decode(output.as_slice(), true).unwrap();
 
         println!(
-            "Matches for user {}: {} found",
-            args.user_id, decoded.match_count
+            "User {} and User {} mutual match: {}",
+            decoded.user_id, decoded.target_id, decoded.is_match
         );
-        println!("Matches hash: {:?}", decoded.matches_hash);
 
-        // Compare the match count with expected matches
-        assert_eq!(decoded.match_count as usize, expected_matches.len());
-
-        // Compute hash of expected matches and compare
-        let expected_hash = compute_matches_hash(&expected_matches);
-        let mut expected_bytes32 = [0u8; 32];
-        expected_bytes32.copy_from_slice(&expected_hash);
-
-        // Convert FixedBytes back to raw bytes for comparison
-        let received_hash_bytes: [u8; 32] = decoded.matches_hash.into();
-
-        assert_eq!(
-            expected_bytes32, received_hash_bytes,
-            "Match hash doesn't match expected value"
-        );
-        println!("Match count and hash verified correctly!");
+        // Compare with expected result
+        assert_eq!(decoded.is_match, expected_result);
+        println!("Result verified correctly!");
 
         // Record the number of cycles executed
         println!("Number of cycles: {}", report.total_instruction_count());
@@ -203,13 +147,11 @@ fn main() {
         // Print the proof info
         let decoded = PublicValuesStruct::abi_decode(proof.public_values.as_slice(), true).unwrap();
         println!("User ID: {}", decoded.user_id);
-        println!("Match count: {}", decoded.match_count);
+        println!("Target ID: {}", decoded.target_id);
+        println!("Is Match: {}", decoded.is_match);
 
-        // For debugging, show expected matches
-        println!("Expected matches: {:?}", expected_matches);
-        println!(
-            "Expected match hash: {:?}",
-            compute_matches_hash(&expected_matches)
-        );
+        // Verify the result
+        assert_eq!(decoded.is_match, expected_result);
+        println!("Result verified correctly!");
     }
 }
