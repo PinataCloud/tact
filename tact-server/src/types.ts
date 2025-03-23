@@ -7,6 +7,10 @@ export type Bindings = {
     SUPABASE_URL: string;
 }
 
+export interface Variables {
+  privyId: string
+}
+
 export type User = {
     gender: "Male" | "Female" | "Non-binary";
     name: {

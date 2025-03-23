@@ -6,8 +6,10 @@
   },
   "dependencies": {
     "@privy-io/server-auth": "^1.19.0",
+    "@supabase/supabase-js": "^2.49.1",
     "hono": "^4.7.5",
-    "pinata": "^2.1.0"
+    "pinata": "^2.1.0",
+    "viem": "^2.23.14"
   },
   "devDependencies": {
     "@cloudflare/workers-types": "^4.20250214.0",

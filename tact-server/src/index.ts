@@ -1,23 +1,26 @@
 import { Hono } from "hono";
-import { Bindings } from "./types";
+import { Bindings, Variables } from "./types";
 import { getPrivyClient } from "./utils/privy";
 import { getSupabaseClient } from "./utils/supabase";
 import { getPinataClient } from "./utils/pinata";
+import { MiddlewareHandler } from "hono/types";
 
 const GROUP_ID = "0195b878-390f-7ab6-85d4-710312d2f33d";
 
-const app = new Hono<{ Bindings: Bindings }>();
+const app = new Hono<{ Bindings: Bindings; Variables: Variables }>();
 
 app.use(async (c, next) => {
   const privy = await getPrivyClient(c);
   const token = c.req.header("Auth-Token");
+
   if (!token) {
     return c.json({ message: "Unauthorited" }, 401);
   }
 
   try {
     const verification = await privy.verifyAuthToken(token);
-    c.header("privy-id", verification.userId);
+    console.log(verification);
+    c.set("privyId", verification.userId);
     await next();
   } catch (error) {
     console.log(`Token verification failed with error ${error}.`);
@@ -27,23 +30,17 @@ app.use(async (c, next) => {
 
 app.post("/users/register", async (c) => {
   try {
-    const { username, fullName } = await c.req.json();
+    const privyClient = getPrivyClient(c);
 
-    if (!username || !fullName) {
-      return c.json({ message: "Username and fulle name are required" }, 400);
-    }
-
-    const privyClient = await getPrivyClient(c);
-
-    const user = await privyClient.getUserById(c.req.header("privy-id") || "");
+    const user = await privyClient.getUserById(c.get("privyId") || "");
 
     const wallet = user.wallet?.address || user.farcaster?.ownerAddress;
 
-    const supabase = await getSupabaseClient(c);
+    const supabase = getSupabaseClient(c);
 
     const { data, error } = await supabase
       .from("users")
-      .insert([{ username, full_name: fullName, wallet_address: wallet }]);
+      .upsert({ wallet_address: wallet }, { onConflict: "wallet_address" });
 
     if (error) {
       throw error;
@@ -61,6 +58,7 @@ app.put("/users/profile", async (c) => {
     const body = await c.req.json();
     const bodyElements = Object.keys(body);
     const allowedEls = [
+      "full_name",
       "city",
       "state",
       "country",
@@ -71,18 +69,25 @@ app.put("/users/profile", async (c) => {
     ];
 
     bodyElements.forEach((el: string) => {
+      console.log(el);
       if (!allowedEls.includes(el)) {
         return c.json({ message: "Invalid profile property provided" }, 400);
       }
+
+      if (el === "dob") {
+        body[el] = new Date(body[el]);
+      }
     });
 
-    const privyClient = await getPrivyClient(c);
-
-    const user = await privyClient.getUserById(c.req.header("privy-id") || "");
-
+    const privyClient = getPrivyClient(c);
+    console.log("We're here...");
+    const privyId = c.get("privyId");
+    console.log(privyId);
+    const user = await privyClient.getUserById(privyId || "");
+    console.log(user);
     const wallet = user.wallet?.address || user.farcaster?.ownerAddress;
-
-    const supabase = await getSupabaseClient(c);
+    console.log({ wallet });
+    const supabase = getSupabaseClient(c);
 
     const { data, error } = await supabase
       .from("users")
@@ -104,7 +109,7 @@ app.put("/users/profile", async (c) => {
 app.get("/users/profile", async (c) => {
   try {
     const privyClient = await getPrivyClient(c);
-    const user = await privyClient.getUserById(c.req.header("privy-id") || "");
+    const user = await privyClient.getUserById(c.get("privyId") || "");
     const wallet = user.wallet?.address || user.farcaster?.ownerAddress;
 
     const supabase = await getSupabaseClient(c);
@@ -123,16 +128,16 @@ app.get("/users/profile", async (c) => {
     return c.json({ data: userFromDb }, 200);
   } catch (error) {
     console.log(error);
-    return c.json({ message: "Server error "}, 500);
+    return c.json({ message: "Server error " }, 500);
   }
-})
+});
 
 app.post("/users/responses", async (c) => {
   try {
     const { responses } = await c.req.json();
-
-    const privyClient = await getPrivyClient(c);
-    const user = await privyClient.getUserById(c.req.header("privy-id") || "");
+    console.log(responses);
+    const privyClient = getPrivyClient(c);
+    const user = await privyClient.getUserById(c.get("privyId") || "");
     const wallet = user.wallet?.address || user.farcaster?.ownerAddress;
 
     const supabase = await getSupabaseClient(c);
@@ -212,11 +217,11 @@ app.post("/users/pfp", async (c) => {
 
 app.get("/matches", async (c) => {
   try {
-    const privyClient = await getPrivyClient(c);
-    const user = await privyClient.getUserById(c.req.header("privy-id") || "");
+    const privyClient = getPrivyClient(c);
+    const user = await privyClient.getUserById(c.get("privyId") || "");
     const wallet = user.wallet?.address || user.farcaster?.ownerAddress;
 
-    const supabase = await getSupabaseClient(c);
+    const supabase = getSupabaseClient(c);
 
     let { data: users, error: selectError } = await supabase
       .from("users")
@@ -235,27 +240,62 @@ app.get("/matches", async (c) => {
 
     const pinata = await getPinataClient(c);
 
-    const fileData = await pinata.gateways.private.get(userFromDb.cid);
+    const fileData = await pinata.gateways.private.get(
+      userFromDb.response_hash
+    );
     const raw = fileData.data;
 
-    const results = await pinata.files.private.queryVectors({
+    console.log(raw);
+
+    const results: any = await pinata.files.private.queryVectors({
       groupId: GROUP_ID,
-      query: raw as string
-    })
-    
-    return c.json({ data: results }, 200);
+      query: raw as string,
+    });
+
+    const matchResults = [];
+
+    for (const match of results.matches) {
+      console.log(match)
+      const files: any = await pinata.files.private.list().cid(match.cid);
+      console.log(files);
+      const file = files.files[0];
+      console.log(file);
+      match.username = file.name;
+
+      const supabase = getSupabaseClient(c);
+
+      let { data: users, error } = await supabase
+        .from("users")
+        .select("*")
+        .eq("username", file.name);
+
+      const user = users && users[0] ? users[0] : null;
+
+      match.picture = user?.picture || "";
+
+      if (error) {
+        throw error;
+      }
+
+      if (!user) {
+        console.log("No user found");
+      }
+    }
+
+    const matchesToReturn = results.matches.filter((a: any) => a.username !== userFromDb.username)
+    return c.json({ data: matchesToReturn }, 200);
   } catch (error) {
     console.log(error);
     return c.json({ message: "Server error" }, 500);
   }
 });
 
-app.post("/matches/:wallet", async(c) => {
+app.post("/matches/:wallet", async (c) => {
   try {
     const { selectedMatchWallet } = await c.req.json();
 
     const privyClient = await getPrivyClient(c);
-    const user = await privyClient.getUserById(c.req.header("privy-id") || "");
+    const user = await privyClient.getUserById(c.get("privyId") || "");
     const userWallet = user.wallet?.address || user.farcaster?.ownerAddress;
 
     //  Do something zk-ish with this
@@ -264,6 +304,6 @@ app.post("/matches/:wallet", async(c) => {
     console.log(error);
     return c.json({ message: "Server error" }, 500);
   }
-})
+});
 
 export default app;
