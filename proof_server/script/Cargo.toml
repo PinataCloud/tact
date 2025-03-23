@@ -26,6 +26,7 @@ hex = "0.4.3"
 alloy-sol-types = { workspace = true }
 tact-lib = { path = "../lib" }
 dotenv = "0.15.0"
-
+supabase_rs = "0.4.2"
+tokio = { version = "1.0", features = ["full"] }
 [build-dependencies]
 sp1-build = "4.0.0"

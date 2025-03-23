@@ -12,7 +12,10 @@
 
 use alloy_sol_types::SolType;
 use clap::Parser;
+use serde_json::Value;
 use sp1_sdk::{include_elf, ProverClient, SP1Stdin};
+use std::env::var;
+use supabase_rs::SupabaseClient;
 use tact_lib::{check_mutual_interest, PublicValuesStruct, UserLike};
 
 /// The ELF file for the Succinct RISC-V zkVM
@@ -48,41 +51,47 @@ fn main() {
         std::process::exit(1);
     }
 
-    // Create sample likes
-    let likes = vec![
-        UserLike {
-            liker_id: 1,
-            likee_id: 2,
-        }, // User 1 likes User 2
-        UserLike {
-            liker_id: 2,
-            likee_id: 1,
-        }, // User 2 likes User 1 (mutual)
-        UserLike {
-            liker_id: 1,
-            likee_id: 3,
-        }, // User 1 likes User 3
-        UserLike {
-            liker_id: 3,
-            likee_id: 1,
-        }, // User 3 likes User 1 (mutual)
-        UserLike {
-            liker_id: 2,
-            likee_id: 5,
-        }, // User 2 likes User 5
-        UserLike {
-            liker_id: 3,
-            likee_id: 4,
-        }, // User 3 likes User 4
-        UserLike {
-            liker_id: 4,
-            likee_id: 1,
-        }, // User 4 likes User 1
-        UserLike {
-            liker_id: 5,
-            likee_id: 1,
-        }, // User 5 likes User 1
-    ];
+    // Initialize Supabase client
+    let supabase_client = SupabaseClient::new(
+        var("SUPABASE_URL").expect("SUPABASE_URL not set"),
+        var("SUPABASE_KEY").expect("SUPABASE_KEY not set"),
+    )
+    .expect("Failed to initialize Supabase client");
+
+    // Fetch likes from the database
+    let likes_result = tokio::runtime::Runtime::new()
+        .expect("Failed to create Tokio runtime")
+        .block_on(async {
+            let data: Result<Vec<Value>, String> = supabase_client.select("likes").execute().await;
+            data
+        });
+
+    let likes = match likes_result {
+        Ok(likes_data) => {
+            // Convert from JSON to UserLike objects
+            likes_data
+                .into_iter()
+                .filter_map(|like| {
+                    if let (Some(liker_id), Some(likee_id)) = (
+                        like.get("liker_id")
+                            .and_then(|v| v.as_u64())
+                            .map(|v| v as u32),
+                        like.get("likee_id")
+                            .and_then(|v| v.as_u64())
+                            .map(|v| v as u32),
+                    ) {
+                        Some(UserLike { liker_id, likee_id })
+                    } else {
+                        None
+                    }
+                })
+                .collect::<Vec<UserLike>>()
+        }
+        Err(e) => {
+            eprintln!("Failed to fetch likes from database: {}", e);
+            std::process::exit(1);
+        }
+    };
 
     // Setup the prover client
     let client = ProverClient::from_env();
