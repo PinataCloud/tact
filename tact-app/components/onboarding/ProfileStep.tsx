@@ -83,7 +83,7 @@ const ProfileStep = (props: StepProps) => {
       }
       
       // First, get a presigned URL from your server
-      const presignedUrlResponse = await fetch(`https://cf3d-66-68-201-142.ngrok-free.app/users/pfp`, {
+      const presignedUrlResponse = await fetch(`https://tact-server.pinata-marketing-enterprise.workers.dev/users/pfp`, {
         method: "POST",
         headers: {
           "Auth-Token": identityToken,
@@ -139,7 +139,7 @@ const ProfileStep = (props: StepProps) => {
       const cid = uploadResult.data.cid;
       const ipfsUrl = `https://tutorials.mypinata.cloud/ipfs/${cid}`;
   
-      const profileUpdateResponse = await fetch(`https://cf3d-66-68-201-142.ngrok-free.app/users/profile`, {
+      const profileUpdateResponse = await fetch(`https://tact-server.pinata-marketing-enterprise.workers.dev/users/profile`, {
         method: "PUT",
         headers: {
           "Auth-Token": identityToken,
@@ -196,7 +196,7 @@ const ProfileStep = (props: StepProps) => {
         console.log(text);
       if (props.onboardingStep < props.totalSteps) {
         console.log("uploading...")
-        await fetch(`https://cf3d-66-68-201-142.ngrok-free.app/users/profile`, {
+        await fetch(`https://tact-server.pinata-marketing-enterprise.workers.dev/users/profile`, {
           method: "PUT",
           headers: {
             "Auth-Token": `${identityToken}`,

@@ -66,6 +66,7 @@ app.put("/users/profile", async (c) => {
       "picture",
       "gender",
       "wallet",
+      "preferred_gender"
     ];
 
     bodyElements.forEach((el: string) => {
@@ -140,7 +141,7 @@ app.post("/users/responses", async (c) => {
     const user = await privyClient.getUserById(c.get("privyId") || "");
     const wallet = user.wallet?.address || user.farcaster?.ownerAddress;
 
-    const supabase = await getSupabaseClient(c);
+    const supabase = getSupabaseClient(c);
 
     let { data: users, error: selectError } = await supabase
       .from("users")
@@ -234,6 +235,8 @@ app.get("/matches", async (c) => {
 
     const userFromDb = users && users[0] ? users[0] : null;
 
+    console.log("DB user: ", userFromDb);
+
     if (!userFromDb) {
       return c.json({ message: "No user found" }, 404);
     }
@@ -255,7 +258,6 @@ app.get("/matches", async (c) => {
     const matchResults = [];
 
     for (const match of results.matches) {
-      console.log(match)
       const files: any = await pinata.files.private.list().cid(match.cid);
       console.log(files);
       const file = files.files[0];
@@ -264,25 +266,60 @@ app.get("/matches", async (c) => {
 
       const supabase = getSupabaseClient(c);
 
+      console.log("file name: ", file.name);
+
       let { data: users, error } = await supabase
         .from("users")
         .select("*")
         .eq("username", file.name);
 
-      const user = users && users[0] ? users[0] : null;
-
-      match.picture = user?.picture || "";
-
       if (error) {
         throw error;
       }
 
-      if (!user) {
-        console.log("No user found");
+      console.log("Match user: ", users);
+
+      const user = users && users[0] ? users[0] : null;
+
+      if (user) {        
+        const pictureIsIPFS = user.picture && user.picture.includes("ipfs");
+        const getIPFSPic = async (userPicture: string) => {
+          const image = await pinata.gateways.private.createAccessLink({ cid: userPicture.split("/ipfs/")[1], expires: 120 })
+          console.log(image);
+          return image;
+        }
+        match.picture =
+          user.picture && pictureIsIPFS
+            ? await getIPFSPic(user.picture)
+            : user.picture
+            ? user.picture
+            : "";
+        match.userId = user?.id;
+
+        let { data: likes, error: likesError } = await supabase
+          .from("likes")
+          .select("*")
+          .eq("likee_id", user.id)
+          .eq("liker_id", userFromDb.id);
+
+        if (likesError) {
+          throw likesError;
+        }
+
+        const likeMatch = likes && likes[0] ? likes[0] : null;
+
+        if (likeMatch && likeMatch.proven) {
+          match.mutual_match = true;
+        } else if (likeMatch) {
+          match.pending_match = true;
+        }
       }
     }
 
-    const matchesToReturn = results.matches.filter((a: any) => a.username !== userFromDb.username)
+    let matchesToReturn = results.matches.filter(
+      (a: any) => a.username !== userFromDb.username
+    );
+
     return c.json({ data: matchesToReturn }, 200);
   } catch (error) {
     console.log(error);
@@ -290,15 +327,40 @@ app.get("/matches", async (c) => {
   }
 });
 
-app.post("/matches/:wallet", async (c) => {
+app.post("/matches", async (c) => {
   try {
-    const { selectedMatchWallet } = await c.req.json();
+    const { matchId } = await c.req.json();
 
-    const privyClient = await getPrivyClient(c);
+    const privyClient = getPrivyClient(c);
     const user = await privyClient.getUserById(c.get("privyId") || "");
     const userWallet = user.wallet?.address || user.farcaster?.ownerAddress;
 
-    //  Do something zk-ish with this
+    const supabase = getSupabaseClient(c);
+    let { data: users, error: selectError } = await supabase
+      .from("users")
+      .select("*")
+      .eq("wallet_address", userWallet);
+
+    if (selectError) {
+      throw selectError;
+    }
+
+    const userFromDb = users && users[0] ? users[0] : null;
+
+    if (!userFromDb) {
+      return c.json({ message: "No user found" }, 404);
+    }
+
+    await fetch(`https://prover.tact.dating/show-interest`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        userId: userFromDb.id,
+        targetId: matchId,
+      }),
+    });
     return c.json({ data: "Success" }, 200);
   } catch (error) {
     console.log(error);

@@ -37,7 +37,7 @@ const Step = (props: StepProps) => {
       props.setOnboardingStep(props.onboardingStep + 1);
     } else {
       setSubmitting(true)
-      await fetch(`https://cf3d-66-68-201-142.ngrok-free.app/users/responses`, {
+      await fetch(`https://tact-server.pinata-marketing-enterprise.workers.dev/users/responses`, {
         method: "POST",
         headers: {
           "Auth-Token": `${identityToken}`,

@@ -14,7 +14,7 @@ export default function HomeScreen() {
   useEffect(() => {
     const registerUserIfNotRegistered = async () => {
       const identityToken = await getAccessToken();
-      await fetch(`https://cf3d-66-68-201-142.ngrok-free.app/users/register`, {
+      await fetch(`https://tact-server.pinata-marketing-enterprise.workers.dev/users/register`, {
         method: "POST",
         headers: {
           'Content-Type': 'application/json',
@@ -24,7 +24,7 @@ export default function HomeScreen() {
       });
 
       //  Get onboarding status
-      const results = await fetch(`https://cf3d-66-68-201-142.ngrok-free.app/users/profile`, {
+      const results = await fetch(`https://tact-server.pinata-marketing-enterprise.workers.dev/users/profile`, {
         method: "GET",
         headers: {
           'Auth-Token': identityToken!
