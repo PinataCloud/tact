@@ -7,6 +7,7 @@
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
     "newArchEnabled": true,
+    "scheme": "tactapp",
     "splash": {
       "image": "./assets/splash-icon.png",
       "resizeMode": "contain",
@@ -30,16 +31,20 @@
       [
         "expo-splash-screen",
         {
-          "backgroundColor": "#232323",
+          "backgroundColor": "#000000",
           "image": "./assets/splash-icon.png",
           "dark": {
             "image": "./assets/splash-icon.png",
             "backgroundColor": "#000000"
           },
-          "imageWidth": 400
+          "imageWidth": 500
         }
       ],
       "expo-secure-store"
-    ]
+    ],
+    "extra": {
+      "privyAppId": "cm8j51lri00ra5kwch3j8zg29",
+      "privyClientId": "client-WY5i2S9jJQGhUTvZzuKnu7M9h33wRRp6MQYV4AT5RdW41"
+    }
   }
 }
